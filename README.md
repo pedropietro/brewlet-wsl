@@ -181,7 +181,7 @@ package visibility is managed separately from repository visibility.
 ## Build and test
 
 Development requires Go 1.26 or newer. Maven plugin development requires Maven
-3.9+ and JDK 17+, while the optional AppCDS integration test requires a full JDK
+3.10+ and JDK 17+, while the optional AppCDS integration test requires a full JDK
 17 or newer. Docker with Buildx is required for provisioner images.
 
 Run all checks that do not require a Kubernetes cluster:
@@ -199,6 +199,105 @@ make binaries
 
 To run the full tiered integration harness against a suitable local cluster,
 see [`integration-tests/AGENTS.md`](integration-tests/AGENTS.md).
+
+### Windows (WSL 2)
+
+Native Windows is not a supported development host: the Makefile and scripts
+require Bash, the shim and provisioner are Linux-only, and several tests rely on
+symlinks, Unix sockets, and POSIX paths. On Windows, build and test inside a
+WSL 2 distribution (Ubuntu 22.04 or newer recommended).
+
+1. **Update WSL and enable cgroup v2.** From PowerShell, run `wsl --update` and
+   check `wsl --version`. Tier 15 deploys Calico, which needs a WSL kernel 6.6
+   or newer (`securityfs`). Inside the distribution,
+   `stat -fc %T /sys/fs/cgroup` must print `cgroup2fs`; if it does not, add the
+   following to `%UserProfile%\.wslconfig` and run `wsl --shutdown`:
+
+   ```ini
+   [wsl2]
+   kernelCommandLine = cgroup_no_v1=all
+   ```
+
+2. **Clone inside the Linux file system**, not under `/mnt/c`. A Windows
+   checkout with `core.autocrlf=true` converts files to CRLF, and the Maven
+   plugin tests expect LF output:
+
+   ```bash
+   git clone https://github.com/microsoft/brewlet.git ~/brewlet
+   ```
+
+3. **Install the toolchain inside the distribution:** Go 1.26+, a full JDK 21+,
+   Maven 3.10+, Python 3.9+ (the scripts use `str.removeprefix`, so the Python
+   3.8 shipped with Ubuntu 20.04 is too old), Node.js 24, GNU Make, `gcc` for
+   `go test -race`, `curl` (used by the host tiers), and `unzip`. Cluster tiers
+   also need `kubectl`, [kind](https://kind.sigs.k8s.io/), Helm, and OpenSSL;
+   without `openssl`, tiers 5, 6, and 11 report a skip instead of running. See
+   the prerequisite table in [CONTRIBUTING.md](CONTRIBUTING.md) for the
+   complete list.
+
+4. **Provide Docker with Buildx**, either through Docker Desktop with WSL
+   integration enabled for the distribution, or with Docker Engine installed in
+   it (start `dockerd` manually, or enable systemd with `[boot] systemd=true` in
+   `/etc/wsl.conf`). Then:
+   - Check that `docker buildx version` works and that `docker build --help`
+     lists `--provenance`. If Buildx is missing or outdated, install or update
+     it (`docker-buildx-plugin` from Docker's repository, or `docker-buildx` on
+     Ubuntu). If it is installed but `docker build` still falls back to the
+     legacy builder, look for stale Docker Desktop plugin links in
+     `/usr/local/lib/docker/cli-plugins` (they point into
+     `/mnt/wsl/docker-desktop`); remove them, or link the installed
+     `docker-buildx` into `~/.docker/cli-plugins`.
+   - Raise the inotify limits for kind:
+     `sudo sysctl -w fs.inotify.max_user_watches=524288 fs.inotify.max_user_instances=512`.
+
+5. **Run the checks** from `~/brewlet`:
+
+   ```bash
+   make check-all
+   integration-tests/e2e/run.sh --tier 3
+   ```
+
+   The multi-architecture image test needs QEMU and a `docker-container`
+   builder, because the default `docker` driver cannot build for several
+   platforms. The QEMU installer runs privileged, so pin it by digest and
+   update the digest deliberately:
+
+   ```bash
+   docker run --privileged --rm \
+     tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 \
+     --install arm64
+   docker buildx create --name brewlet-multiarch --driver docker-container --use
+   make container-image-test
+   docker buildx use default
+   ```
+
+   The last command restores the default builder: the cluster tiers load
+   locally built images into kind, which a `docker-container` builder does not
+   do without `--load`.
+
+   For cluster tiers, use a fresh kind cluster for each tier group listed in
+   [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml); tier 10 also needs
+   cert-manager, and tier 15 needs Calico with
+   [`kind-network-policy.yaml`](integration-tests/e2e/kind-network-policy.yaml).
+
+The distribution's virtual disk lives on the system drive by default and grows
+by about 30 GB during a full run (kind node images, the multi-architecture build
+cache, locally built images, and E2E work directories). Make sure there is
+enough free space, or move the distribution to another drive with
+`wsl --export` and `wsl --import`. Afterwards, remove only what the run
+created:
+
+```bash
+kind delete cluster --name <cluster-you-created>
+docker buildx rm brewlet-multiarch
+docker image ls --filter 'reference=brewlet.local/*' --format '{{.Repository}}:{{.Tag}}' |
+  xargs -r docker image rm
+```
+
+Also delete the E2E work directories that `run.sh` reports (or the `E2E_WORK`
+directory you set). Do not run a global `docker system prune`: on a shared
+Docker daemon it also removes other projects' images, containers, networks,
+and build cache.
 
 ## Contributing and support
 
