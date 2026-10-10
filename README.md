@@ -236,13 +236,6 @@ WSL 2 distribution (Ubuntu 22.04 or newer recommended).
    integration enabled for the distribution, or with Docker Engine installed in
    it (start `dockerd` manually, or enable systemd with `[boot] systemd=true` in
    `/etc/wsl.conf`). Then:
-   - For multi-architecture image tests, register QEMU with
-     `docker run --privileged --rm tonistiigi/binfmt --install arm64` and
-     select a builder created with
-     `docker buildx create --use --driver docker-container`.
-   - Before running integration tiers, switch back with
-     `docker buildx use default`: the tiers load locally built images into
-     kind, which a `docker-container` builder does not do without `--load`.
    - If `docker build --help` does not list `--provenance`, the CLI is using
      stale Docker Desktop plugin links in `/usr/local/lib/docker/cli-plugins`.
      Remove them, or link the distribution's `docker-buildx` into
@@ -255,8 +248,25 @@ WSL 2 distribution (Ubuntu 22.04 or newer recommended).
    ```bash
    make check-all
    integration-tests/e2e/run.sh --tier 3
-   make container-image-test
    ```
+
+   The multi-architecture image test needs QEMU and a `docker-container`
+   builder, because the default `docker` driver cannot build for several
+   platforms. The QEMU installer runs privileged, so pin it by digest and
+   update the digest deliberately:
+
+   ```bash
+   docker run --privileged --rm \
+     tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 \
+     --install arm64
+   docker buildx create --name brewlet-multiarch --driver docker-container --use
+   make container-image-test
+   docker buildx use default
+   ```
+
+   The last command restores the default builder: the cluster tiers load
+   locally built images into kind, which a `docker-container` builder does not
+   do without `--load`.
 
    For cluster tiers, use a fresh kind cluster for each tier group listed in
    [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml); tier 10 also needs
