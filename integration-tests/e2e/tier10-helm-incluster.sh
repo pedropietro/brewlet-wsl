@@ -117,6 +117,32 @@ _t10_cert_serial() {
     sed 's/^serial=//'
 }
 
+# _t10_ca_bundle KIND NAME -> the first webhook's clientConfig.caBundle.
+_t10_ca_bundle() {
+  kubectl get "$1" "$2" -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null
+}
+
+_t10_ca_bundles_injected() {
+  [[ -n "$(_t10_ca_bundle mutatingwebhookconfiguration brewlet-admission)" ]] &&
+    [[ -n "$(_t10_ca_bundle validatingwebhookconfiguration brewlet-nodeprofiles)" ]]
+}
+
+# _t10_wait_ca_bundles SECONDS: cainjector patches both webhook caBundles
+# asynchronously AFTER the Certificate turns Ready, so a single read races it.
+# Poll until both are set, logging the outcome to t10-install.log.
+_t10_wait_ca_bundles() {
+  local seconds="$1" start rc=0 mutating validating
+  start="$(date +%s)"
+  echo "tier10: waiting up to ${seconds}s for cainjector to inject both webhook caBundles" \
+    >>"$WORK/t10-install.log"
+  wait_for_seconds "$seconds" _t10_ca_bundles_injected || rc=$?
+  mutating="$(_t10_ca_bundle mutatingwebhookconfiguration brewlet-admission)"
+  validating="$(_t10_ca_bundle validatingwebhookconfiguration brewlet-nodeprofiles)"
+  printf 'tier10: caBundle wait rc=%s after %ss (bytes: mutating/brewlet-admission=%s validating/brewlet-nodeprofiles=%s)\n' \
+    "$rc" "$(( $(date +%s) - start ))" "${#mutating}" "${#validating}" >>"$WORK/t10-install.log"
+  return "$rc"
+}
+
 _t10_served_cert_serial() {
   local port="$1"
   printf '' |
@@ -224,10 +250,7 @@ tier10_helm_incluster() {
   if [[ -n "$T10_CERT_MANAGER" ]]; then
     if kubectl wait --for=condition=Ready certificate/brewlet-admission-cert \
          -n "$T10_NS" --timeout=120s >>"$WORK/t10-install.log" 2>&1 &&
-       [[ -n "$(kubectl get mutatingwebhookconfiguration brewlet-admission \
-         -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)" ]] &&
-       [[ -n "$(kubectl get validatingwebhookconfiguration brewlet-nodeprofiles \
-         -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)" ]]; then
+       _t10_wait_ca_bundles 120; then
       pass "helm(in-cluster): cert-manager issued TLS and injected both webhook CA bundles"
     else
       fail "helm(in-cluster): cert-manager issued TLS and injected both webhook CA bundles" \
