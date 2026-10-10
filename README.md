@@ -277,10 +277,23 @@ WSL 2 distribution (Ubuntu 22.04 or newer recommended).
    [`kind-network-policy.yaml`](integration-tests/e2e/kind-network-policy.yaml).
 
 The distribution's virtual disk lives on the system drive by default and grows
-by about 30 GB during a full run (images, build caches, and E2E work
-directories). Make sure there is enough free space, clean up afterwards with
-`docker system prune -a` and `go clean -cache`, or move the distribution to
-another drive with `wsl --export` and `wsl --import`.
+by about 30 GB during a full run (kind node images, the multi-architecture build
+cache, locally built images, and E2E work directories). Make sure there is
+enough free space, or move the distribution to another drive with
+`wsl --export` and `wsl --import`. Afterwards, remove only what the run
+created:
+
+```bash
+kind delete cluster --name <cluster-you-created>
+docker buildx rm brewlet-multiarch
+docker image ls --filter 'reference=brewlet.local/*' --format '{{.Repository}}:{{.Tag}}' |
+  xargs -r docker image rm
+```
+
+Also delete the E2E work directories that `run.sh` reports (or the `E2E_WORK`
+directory you set). Do not run a global `docker system prune`: on a shared
+Docker daemon it also removes other projects' images, containers, networks,
+and build cache.
 
 ## Contributing and support
 
