@@ -229,8 +229,11 @@ WSL 2 distribution (Ubuntu 22.04 or newer recommended).
 3. **Install the toolchain inside the distribution:** Go 1.26+, a full JDK 21+,
    Maven 3.10+, Python 3.9+ (the scripts use `str.removeprefix`, so the Python
    3.8 shipped with Ubuntu 20.04 is too old), Node.js 24, GNU Make, `gcc` for
-   `go test -race`, and `unzip`. Cluster tiers also need `kubectl`,
-   [kind](https://kind.sigs.k8s.io/), and Helm.
+   `go test -race`, `curl` (used by the host tiers), and `unzip`. Cluster tiers
+   also need `kubectl`, [kind](https://kind.sigs.k8s.io/), Helm, and OpenSSL;
+   without `openssl`, tiers 5, 6, and 11 report a skip instead of running. See
+   the prerequisite table in [CONTRIBUTING.md](CONTRIBUTING.md) for the
+   complete list.
 
 4. **Provide Docker with Buildx**, either through Docker Desktop with WSL
    integration enabled for the distribution, or with Docker Engine installed in
