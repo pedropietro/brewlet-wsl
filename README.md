@@ -227,7 +227,7 @@ WSL 2 distribution (Ubuntu 22.04 or newer recommended).
    ```
 
 3. **Install the toolchain inside the distribution:** Go 1.26+, a full JDK 21+,
-   Maven 3.9+, Python 3.9+ (the scripts use `str.removeprefix`, so the Python
+   Maven 3.10+, Python 3.9+ (the scripts use `str.removeprefix`, so the Python
    3.8 shipped with Ubuntu 20.04 is too old), Node.js 24, GNU Make, `gcc` for
    `go test -race`, and `unzip`. Cluster tiers also need `kubectl`,
    [kind](https://kind.sigs.k8s.io/), and Helm.
