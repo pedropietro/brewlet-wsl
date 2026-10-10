@@ -200,6 +200,75 @@ make binaries
 To run the full tiered integration harness against a suitable local cluster,
 see [`integration-tests/AGENTS.md`](integration-tests/AGENTS.md).
 
+### Windows (WSL 2)
+
+Native Windows is not a supported development host: the Makefile and scripts
+require Bash, the shim and provisioner are Linux-only, and several tests rely on
+symlinks, Unix sockets, and POSIX paths. On Windows, build and test inside a
+WSL 2 distribution (Ubuntu 22.04 or newer recommended).
+
+1. **Update WSL and enable cgroup v2.** From PowerShell, run `wsl --update` and
+   check `wsl --version`. Tier 15 deploys Calico, which needs a WSL kernel 6.6
+   or newer (`securityfs`). Inside the distribution,
+   `stat -fc %T /sys/fs/cgroup` must print `cgroup2fs`; if it does not, add the
+   following to `%UserProfile%\.wslconfig` and run `wsl --shutdown`:
+
+   ```ini
+   [wsl2]
+   kernelCommandLine = cgroup_no_v1=all
+   ```
+
+2. **Clone inside the Linux file system**, not under `/mnt/c`. A Windows
+   checkout with `core.autocrlf=true` converts files to CRLF, and the Maven
+   plugin tests expect LF output:
+
+   ```bash
+   git clone https://github.com/microsoft/brewlet.git ~/brewlet
+   ```
+
+3. **Install the toolchain inside the distribution:** Go 1.26+, a full JDK 21+,
+   Maven 3.9+, Python 3.9+ (the scripts use `str.removeprefix`, so the Python
+   3.8 shipped with Ubuntu 20.04 is too old), Node.js 24, GNU Make, `gcc` for
+   `go test -race`, and `unzip`. Cluster tiers also need `kubectl`,
+   [kind](https://kind.sigs.k8s.io/), and Helm.
+
+4. **Provide Docker with Buildx**, either through Docker Desktop with WSL
+   integration enabled for the distribution, or with Docker Engine installed in
+   it (start `dockerd` manually, or enable systemd with `[boot] systemd=true` in
+   `/etc/wsl.conf`). Then:
+   - For multi-architecture image tests, register QEMU with
+     `docker run --privileged --rm tonistiigi/binfmt --install arm64` and
+     select a builder created with
+     `docker buildx create --use --driver docker-container`.
+   - Before running integration tiers, switch back with
+     `docker buildx use default`: the tiers load locally built images into
+     kind, which a `docker-container` builder does not do without `--load`.
+   - If `docker build --help` does not list `--provenance`, the CLI is using
+     stale Docker Desktop plugin links in `/usr/local/lib/docker/cli-plugins`.
+     Remove them, or link the distribution's `docker-buildx` into
+     `~/.docker/cli-plugins`.
+   - Raise the inotify limits for kind:
+     `sudo sysctl -w fs.inotify.max_user_watches=524288 fs.inotify.max_user_instances=512`.
+
+5. **Run the checks** from `~/brewlet`:
+
+   ```bash
+   make check-all
+   integration-tests/e2e/run.sh --tier 3
+   make container-image-test
+   ```
+
+   For cluster tiers, use a fresh kind cluster for each tier group listed in
+   [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml); tier 10 also needs
+   cert-manager, and tier 15 needs Calico with
+   [`kind-network-policy.yaml`](integration-tests/e2e/kind-network-policy.yaml).
+
+The distribution's virtual disk lives on the system drive by default and grows
+by about 30 GB during a full run (images, build caches, and E2E work
+directories). Make sure there is enough free space, clean up afterwards with
+`docker system prune -a` and `go clean -cache`, or move the distribution to
+another drive with `wsl --export` and `wsl --import`.
+
 ## Contributing and support
 
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the
