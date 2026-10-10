@@ -239,10 +239,14 @@ WSL 2 distribution (Ubuntu 22.04 or newer recommended).
    integration enabled for the distribution, or with Docker Engine installed in
    it (start `dockerd` manually, or enable systemd with `[boot] systemd=true` in
    `/etc/wsl.conf`). Then:
-   - If `docker build --help` does not list `--provenance`, the CLI is using
-     stale Docker Desktop plugin links in `/usr/local/lib/docker/cli-plugins`.
-     Remove them, or link the distribution's `docker-buildx` into
-     `~/.docker/cli-plugins`.
+   - Check that `docker buildx version` works and that `docker build --help`
+     lists `--provenance`. If Buildx is missing or outdated, install or update
+     it (`docker-buildx-plugin` from Docker's repository, or `docker-buildx` on
+     Ubuntu). If it is installed but `docker build` still falls back to the
+     legacy builder, look for stale Docker Desktop plugin links in
+     `/usr/local/lib/docker/cli-plugins` (they point into
+     `/mnt/wsl/docker-desktop`); remove them, or link the installed
+     `docker-buildx` into `~/.docker/cli-plugins`.
    - Raise the inotify limits for kind:
      `sudo sysctl -w fs.inotify.max_user_watches=524288 fs.inotify.max_user_instances=512`.
 
